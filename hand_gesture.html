@@ -8,7 +8,7 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif;
-      background: #0f0f13;
+      background: #515158;
       color: #f0f0f0;
       min-height: 100vh;
       display: flex;
@@ -82,7 +82,7 @@
       cursor: pointer;
       transition: background 0.15s, border-color 0.15s;
     }
-    button:hover { background: #2a2a38; border-color: #6c63e0; }
+    button:hover { background: #348338; border-color: #b7b3ec; }
     button:active { transform: scale(0.97); }
     .gesture-grid {
       margin-top: 20px;
@@ -109,7 +109,7 @@
     }
     .g-card.active {
       border-color: #7c70e0;
-      background: #22203a;
+      background: #574dc7;
     }
     .note {
       margin-top: 14px;
@@ -173,17 +173,32 @@
       const mid   = isExtended(lm, 12, 10);
       const ring  = isExtended(lm, 16, 14);
       const pinky = isExtended(lm, 20, 18);
-      const thumbUp = lm[4].y < lm[3].y && !idx && !mid && !ring && !pinky;
 
-      if (thumbUp)                    return 'thumbsup';
-      if (idx && mid && !ring && !pinky) return 'victory';
-      if (idx && mid && ring && pinky)   return 'open';
-      if (!idx && !mid && !ring && !pinky) return 'fist';
-      if (idx && !mid && !ring && pinky)   return 'rock';
-      // OK: index tip close to thumb tip
+      // 엄지: 끝(4)이 검지 MCP(5)보다 손 안쪽(손목 방향)에 있으면 접힌 것
+      // 손목(0)~검지MCP(5) 중간점보다 엄지 끝이 가까우면 curl로 판단
+      const wrist = lm[0];
+      const indexMCP = lm[5];
+      const thumbTip = lm[4];
+      
+      // 엄지 끝과 손목 사이의 거리
+      const thumbToWrist = Math.hypot(thumbTip.x - wrist.x, thumbTip.y - wrist.y);
+      // 검지MCP와 손목 사이의 거리  
+      const mcpToWrist   = Math.hypot(indexMCP.x - wrist.x, indexMCP.y - wrist.y);
+      
+      // 엄지가 검지MCP보다 손목에 가까우면 = 접힘
+      const thumbCurled = thumbToWrist < mcpToWrist * 0.9;
+      const thumbUp     = !thumbCurled && !idx && !mid && !ring && !pinky;
+
+      if (thumbUp)                                          return 'thumbsup';
+      if (idx && mid && !ring && !pinky)                    return 'victory';
+      if (idx && mid && ring && pinky)                      return 'open';
+      if (!idx && !mid && !ring && !pinky && thumbCurled)   return 'fist';
+      if (!idx && !mid && !ring && !pinky && !thumbCurled)  return 'thumbsup'; // 엄지만 핀 상태
+      if (idx && !mid && !ring && pinky)                    return 'rock';
+
       const dx = lm[4].x - lm[8].x;
       const dy = lm[4].y - lm[8].y;
-      if (Math.sqrt(dx*dx+dy*dy) < 0.07 && mid && ring && pinky) return 'ok';
+      if (Math.sqrt(dx*dx + dy*dy) < 0.07 && mid && ring && pinky) return 'ok';
       return null;
     }
 
