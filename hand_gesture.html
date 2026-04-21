@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>손 제스처 인식기</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif;
+      background: #0f0f13;
+      color: #f0f0f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.02em;
+    }
+    .subtitle {
+      font-size: 0.85rem;
+      color: #888;
+      margin-bottom: 1.5rem;
+    }
+    .video-wrapper {
+      position: relative;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid #2a2a35;
+      display: inline-block;
+    }
+    #video {
+      display: block;
+      width: 480px;
+      height: 360px;
+      background: #111;
+      transform: scaleX(-1);
+    }
+    #overlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 480px;
+      height: 360px;
+      transform: scaleX(-1);
+      pointer-events: none;
+    }
+    #gesture-label {
+      position: absolute;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 1.3rem;
+      font-weight: 600;
+      padding: 8px 24px;
+      border-radius: 999px;
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 0.25s;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(8px);
+      color: #fff;
+    }
+    #gesture-label.visible { opacity: 1; }
+    .btn-row {
+      margin-top: 14px;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+    button {
+      background: #1e1e28;
+      border: 1px solid #3a3a4a;
+      color: #e0e0e0;
+      font-size: 0.9rem;
+      padding: 9px 22px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    button:hover { background: #2a2a38; border-color: #6c63e0; }
+    button:active { transform: scale(0.97); }
+    .gesture-grid {
+      margin-top: 20px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      max-width: 480px;
+      width: 100%;
+    }
+    .g-card {
+      background: #1a1a24;
+      border: 1px solid #2a2a35;
+      border-radius: 12px;
+      padding: 12px 8px;
+      text-align: center;
+      font-size: 1.6rem;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .g-card span {
+      display: block;
+      font-size: 0.75rem;
+      color: #888;
+      margin-top: 5px;
+    }
+    .g-card.active {
+      border-color: #7c70e0;
+      background: #22203a;
+    }
+    .note {
+      margin-top: 14px;
+      font-size: 0.75rem;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <h1>손 제스처 인식기</h1>
+  <p class="subtitle">카메라를 켜고 손 모양을 보여주세요</p>
+
+  <div class="video-wrapper">
+    <video id="video" autoplay playsinline></video>
+    <canvas id="overlay" width="480" height="360"></canvas>
+    <div id="gesture-label">✌️ 베리!</div>
+  </div>
+
+  <div class="btn-row">
+    <button id="start-btn" onclick="startCamera()">카메라 시작</button>
+    <button id="stop-btn" onclick="stopCamera()" style="display:none;">카메라 끄기</button>
+  </div>
+
+  <div class="gesture-grid">
+    <div class="g-card" data-g="victory">✌️<span>V → 베리!</span></div>
+    <div class="g-card" data-g="thumbsup">👍<span>엄지 → 최고!</span></div>
+    <div class="g-card" data-g="fist">✊<span>주먹 → 파이팅!</span></div>
+    <div class="g-card" data-g="open">🖐️<span>손바닥 → 하이파이브!</span></div>
+    <div class="g-card" data-g="ok">👌<span>OK → 오케이~</span></div>
+    <div class="g-card" data-g="rock">🤘<span>락 → 락앤롤!</span></div>
+  </div>
+
+  <p class="note">카메라 영상은 외부로 전송되지 않으며 브라우저 안에서만 처리됩니다</p>
+
+  <!-- MediaPipe CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+
+  <script>
+    const video   = document.getElementById('video');
+    const canvas  = document.getElementById('overlay');
+    const ctx     = canvas.getContext('2d');
+    const label   = document.getElementById('gesture-label');
+
+    const GESTURES = {
+      victory:  { emoji:'✌️', text:'베리!',       color:'#7c70e0cc' },
+      thumbsup: { emoji:'👍', text:'최고!',        color:'#1d9e75cc' },
+      fist:     { emoji:'✊', text:'파이팅!',      color:'#d85a30cc' },
+      open:     { emoji:'🖐️', text:'하이파이브!', color:'#185fa5cc' },
+      ok:       { emoji:'👌', text:'오케이~',      color:'#ba7517cc' },
+      rock:     { emoji:'🤘', text:'락앤롤!',      color:'#d4537ecc' },
+    };
+
+    function isExtended(lm, tip, pip) {
+      return lm[tip].y < lm[pip].y;
+    }
+
+    function classifyGesture(lm) {
+      const idx   = isExtended(lm, 8,  6);
+      const mid   = isExtended(lm, 12, 10);
+      const ring  = isExtended(lm, 16, 14);
+      const pinky = isExtended(lm, 20, 18);
+      const thumbUp = lm[4].y < lm[3].y && !idx && !mid && !ring && !pinky;
+
+      if (thumbUp)                    return 'thumbsup';
+      if (idx && mid && !ring && !pinky) return 'victory';
+      if (idx && mid && ring && pinky)   return 'open';
+      if (!idx && !mid && !ring && !pinky) return 'fist';
+      if (idx && !mid && !ring && pinky)   return 'rock';
+      // OK: index tip close to thumb tip
+      const dx = lm[4].x - lm[8].x;
+      const dy = lm[4].y - lm[8].y;
+      if (Math.sqrt(dx*dx+dy*dy) < 0.07 && mid && ring && pinky) return 'ok';
+      return null;
+    }
+
+    function updateUI(g) {
+      document.querySelectorAll('.g-card').forEach(c => c.classList.remove('active'));
+      if (g && GESTURES[g]) {
+        const info = GESTURES[g];
+        label.textContent = info.emoji + ' ' + info.text;
+        label.style.background = info.color;
+        label.classList.add('visible');
+        const card = document.querySelector(`.g-card[data-g="${g}"]`);
+        if (card) card.classList.add('active');
+      } else {
+        label.classList.remove('visible');
+      }
+    }
+
+    let hands = null, stream = null, rafId = null;
+
+    async function loop() {
+      if (!stream) return;
+      if (video.readyState >= 2) {
+        await hands.send({ image: video });
+      }
+      rafId = requestAnimationFrame(loop);
+    }
+
+    async function startCamera() {
+      document.getElementById('start-btn').style.display = 'none';
+      document.getElementById('stop-btn').style.display  = '';
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 480, height: 360, facingMode: 'user' }
+        });
+        video.srcObject = stream;
+        await video.play();
+      } catch(e) {
+        alert('카메라 접근 권한이 필요합니다.\n브라우저 설정에서 허용해주세요.');
+        document.getElementById('start-btn').style.display = '';
+        document.getElementById('stop-btn').style.display  = 'none';
+        return;
+      }
+
+      if (!window.Hands) {
+        updateUI(null);
+        label.textContent = '모델 로딩 실패 — 새로고침 해주세요';
+        label.classList.add('visible');
+        return;
+      }
+
+      hands = new Hands({
+        locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+      });
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.5
+      });
+      hands.onResults(results => {
+        ctx.clearRect(0, 0, 480, 360);
+        if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+          updateUI(null);
+          return;
+        }
+        const lm = results.multiHandLandmarks[0];
+        if (window.drawConnectors && window.HAND_CONNECTIONS) {
+          drawConnectors(ctx, lm, HAND_CONNECTIONS, { color: 'rgba(124,112,224,0.5)', lineWidth: 2 });
+          drawLandmarks(ctx, lm, { color: '#fff', fillColor: '#7c70e0', lineWidth: 1, radius: 3 });
+        }
+        updateUI(classifyGesture(lm));
+      });
+
+      loop();
+    }
+
+    function stopCamera() {
+      if (rafId) cancelAnimationFrame(rafId);
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      stream = null; hands = null;
+      video.srcObject = null;
+      ctx.clearRect(0, 0, 480, 360);
+      label.classList.remove('visible');
+      document.querySelectorAll('.g-card').forEach(c => c.classList.remove('active'));
+      document.getElementById('start-btn').style.display = '';
+      document.getElementById('stop-btn').style.display  = 'none';
+    }
+  </script>
+</body>
+</html>
